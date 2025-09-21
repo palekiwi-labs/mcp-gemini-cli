@@ -1,5 +1,5 @@
 [package]
-name = "mcp-server"
+name = "mcp-gemini-cli"
 version = "0.1.0"
 edition = "2024"
 description = "A Model Context Protocol (MCP) SSE server template"
