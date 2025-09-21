@@ -10,7 +10,7 @@ const BIND_ADDRESS: &str = "127.0.0.1:8000";
 #[derive(Parser)]
 #[command(author, version, about)]
 struct Args {
-    /// Path or command to gemini-cli executable
+    /// Path or command to gemini-cli executable (supports multi-word commands like "task ai:run")
     #[arg(long, env = "GEMINI_CLI_COMMAND", default_value = "gemini")]
     gemini_cli_command: String,
 }

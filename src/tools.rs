@@ -209,8 +209,23 @@ impl FileSystem {
         &self,
         Parameters(args): Parameters<PromptGeminiArgs>,
     ) -> Result<CallToolResult, McpError> {
+        // Parse command string to handle commands with arguments (e.g., "task ai:run")
+        let parts: Vec<&str> = self.gemini_cli_command.split_whitespace().collect();
+        if parts.is_empty() {
+            return Err(McpError::internal_error(
+                "empty_gemini_command",
+                Some(serde_json::json!({
+                    "error": "Gemini CLI command is empty"
+                })),
+            ));
+        }
+
         // Execute gemini-cli command
-        let output = Command::new(&self.gemini_cli_command)
+        let mut cmd = Command::new(parts[0]);
+        if parts.len() > 1 {
+            cmd.args(&parts[1..]);
+        }
+        let output = cmd
             .arg("--prompt")
             .arg(&args.prompt)
             .output()
@@ -341,6 +356,23 @@ mod tests {
     async fn test_filesystem_new() {
         let fs = FileSystem::new("test_command".to_string());
         assert_eq!(fs.gemini_cli_command, "test_command");
+    }
+
+    #[tokio::test]
+    async fn test_prompt_gemini_with_multiword_command() {
+        // Test with a multi-word command like "echo hello"
+        let fs = FileSystem::new("echo hello".to_string());
+        let args = PromptGeminiArgs {
+            prompt: "world".to_string(),
+        };
+        
+        let result = fs.prompt_gemini(Parameters(args)).await;
+        assert!(result.is_ok());
+        
+        if let Ok(call_result) = result {
+            // Should contain "hello --prompt world"
+            assert!(!call_result.content.is_empty());
+        }
     }
 }
 

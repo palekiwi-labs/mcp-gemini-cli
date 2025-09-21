@@ -25,7 +25,7 @@
           version = "0.1.0";
           src = ./.;
 
-          cargoHash = "sha256-3dahQ7fBcn5yr1yurEeWiyypoboTtO2fUiqTarQr5ww=";
+          cargoHash = "sha256-axiscIOh0si5XR4zaxRj7uzHgGPjGDaOZvvT2ErH6To=";
 
           meta = with pkgs.lib; {
             description = "A flake for mcp-gemini-cli";
