@@ -19,6 +19,21 @@
       };
     in
     {
+      packages.${system}.default = pkgs.rustPlatform.buildRustPackage
+        {
+          pname = "mcp-gemini-cli";
+          version = "0.1.0";
+          src = ./.;
+
+          cargoHash = "sha256-3dahQ7fBcn5yr1yurEeWiyypoboTtO2fUiqTarQr5ww=";
+
+          meta = with pkgs.lib; {
+            description = "A flake for mcp-gemini-cli";
+            license = licenses.mit;
+            maintainers = [ ];
+          };
+        };
+
       devShells.${system}.default = pkgs.mkShell
         {
           buildInputs = [
