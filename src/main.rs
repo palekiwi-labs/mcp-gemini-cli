@@ -1,16 +1,24 @@
+use clap::Parser;
 use rmcp::transport::sse_server::{SseServer, SseServerConfig};
-use tracing_subscriber::{
-    layer::SubscriberExt,
-    util::SubscriberInitExt,
-};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 mod tools;
 use tools::FileSystem;
 
 const BIND_ADDRESS: &str = "127.0.0.1:8000";
 
+#[derive(Parser)]
+#[command(author, version, about)]
+struct Args {
+    /// Path or command to gemini-cli executable
+    #[arg(long, env = "GEMINI_CLI_COMMAND", default_value = "gemini")]
+    gemini_cli_command: String,
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let args = Args::parse();
+
     // Initialize tracing
     tracing_subscriber::registry()
         .with(
@@ -49,7 +57,8 @@ async fn main() -> anyhow::Result<()> {
     });
 
     // Start the MCP service with FileSystem tools
-    let ct = sse_server.with_service(FileSystem::new);
+    let gemini_cli_command = args.gemini_cli_command.clone();
+    let ct = sse_server.with_service(move || FileSystem::new(gemini_cli_command.clone()));
 
     tracing::info!("MCP SSE Server running!");
     tracing::info!("SSE endpoint: http://{}/sse", BIND_ADDRESS);

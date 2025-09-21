@@ -2,16 +2,13 @@ use std::path::Path;
 
 use rmcp::{
     ErrorData as McpError, RoleServer, ServerHandler,
-    handler::server::{
-        router::tool::ToolRouter,
-        wrapper::Parameters,
-    },
+    handler::server::{router::tool::ToolRouter, wrapper::Parameters},
     model::*,
     service::RequestContext,
     tool, tool_handler, tool_router,
 };
 use serde::{Deserialize, Serialize};
-use tokio::fs;
+use tokio::{fs, process::Command};
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct ListFilesArgs {
@@ -40,6 +37,12 @@ pub struct FileInfoArgs {
     pub path: String,
 }
 
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct PromptGeminiArgs {
+    /// The prompt to send to Gemini CLI
+    pub prompt: String,
+}
+
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct FileInfo {
     pub path: String,
@@ -56,13 +59,15 @@ fn default_current_dir() -> String {
 #[derive(Clone)]
 pub struct FileSystem {
     tool_router: ToolRouter<FileSystem>,
+    gemini_cli_command: String,
 }
 
 #[tool_router]
 impl FileSystem {
-    pub fn new() -> Self {
+    pub fn new(gemini_cli_command: String) -> Self {
         Self {
             tool_router: Self::tool_router(),
+            gemini_cli_command,
         }
     }
 
@@ -72,14 +77,19 @@ impl FileSystem {
         Parameters(args): Parameters<ListFilesArgs>,
     ) -> Result<CallToolResult, McpError> {
         let path = Path::new(&args.path);
-        
+
         match fs::read_dir(path).await {
             Ok(mut entries) => {
                 let mut files = Vec::new();
-                
+
                 while let Ok(Some(entry)) = entries.next_entry().await {
                     if let Ok(file_name) = entry.file_name().into_string() {
-                        let file_type = if entry.file_type().await.map(|ft| ft.is_dir()).unwrap_or(false) {
+                        let file_type = if entry
+                            .file_type()
+                            .await
+                            .map(|ft| ft.is_dir())
+                            .unwrap_or(false)
+                        {
                             "[DIR]"
                         } else {
                             "[FILE]"
@@ -87,14 +97,14 @@ impl FileSystem {
                         files.push(format!("{} {}", file_type, file_name));
                     }
                 }
-                
+
                 files.sort();
                 let content = if files.is_empty() {
                     "Directory is empty".to_string()
                 } else {
                     format!("Contents of '{}':\n{}", args.path, files.join("\n"))
                 };
-                
+
                 Ok(CallToolResult::success(vec![Content::text(content)]))
             }
             Err(e) => Err(McpError::internal_error(
@@ -113,12 +123,10 @@ impl FileSystem {
         Parameters(args): Parameters<ReadFileArgs>,
     ) -> Result<CallToolResult, McpError> {
         match fs::read_to_string(&args.path).await {
-            Ok(content) => {
-                Ok(CallToolResult::success(vec![Content::text(format!(
-                    "Content of '{}':\n\n{}",
-                    args.path, content
-                ))]))
-            }
+            Ok(content) => Ok(CallToolResult::success(vec![Content::text(format!(
+                "Content of '{}':\n\n{}",
+                args.path, content
+            ))])),
             Err(e) => Err(McpError::internal_error(
                 "failed_to_read_file",
                 Some(serde_json::json!({
@@ -135,13 +143,11 @@ impl FileSystem {
         Parameters(args): Parameters<WriteFileArgs>,
     ) -> Result<CallToolResult, McpError> {
         match fs::write(&args.path, &args.content).await {
-            Ok(()) => {
-                Ok(CallToolResult::success(vec![Content::text(format!(
-                    "Successfully wrote {} bytes to '{}'",
-                    args.content.len(),
-                    args.path
-                ))]))
-            }
+            Ok(()) => Ok(CallToolResult::success(vec![Content::text(format!(
+                "Successfully wrote {} bytes to '{}'",
+                args.content.len(),
+                args.path
+            ))])),
             Err(e) => Err(McpError::internal_error(
                 "failed_to_write_file",
                 Some(serde_json::json!({
@@ -158,7 +164,7 @@ impl FileSystem {
         Parameters(args): Parameters<FileInfoArgs>,
     ) -> Result<CallToolResult, McpError> {
         let path = Path::new(&args.path);
-        
+
         match fs::metadata(path).await {
             Ok(metadata) => {
                 let modified = metadata
@@ -197,6 +203,79 @@ impl FileSystem {
             )),
         }
     }
+
+    #[tool(description = "Send a prompt to Gemini CLI and return the response")]
+    async fn prompt_gemini(
+        &self,
+        Parameters(args): Parameters<PromptGeminiArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        // Execute gemini-cli command
+        let output = Command::new(&self.gemini_cli_command)
+            .arg("--prompt")
+            .arg(&args.prompt)
+            .output()
+            .await;
+
+        match output {
+            Ok(output) => {
+                if output.status.success() {
+                    // Convert output to string, handling potential UTF-8 issues
+                    let response = String::from_utf8_lossy(&output.stdout);
+                    let response = response.trim();
+
+                    if response.is_empty() {
+                        Ok(CallToolResult::success(vec![Content::text(
+                            "Gemini CLI returned empty response".to_string(),
+                        )]))
+                    } else {
+                        Ok(CallToolResult::success(vec![Content::text(
+                            response.to_string(),
+                        )]))
+                    }
+                } else {
+                    // Handle non-zero exit code
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    let _error_msg = if stderr.trim().is_empty() {
+                        format!(
+                            "Gemini CLI exited with code {}",
+                            output.status.code().unwrap_or(-1)
+                        )
+                    } else {
+                        format!("Gemini CLI error: {}", stderr.trim())
+                    };
+
+                    Err(McpError::internal_error(
+                        "gemini_cli_execution_failed",
+                        Some(serde_json::json!({
+                            "exit_code": output.status.code(),
+                            "stderr": stderr.trim(),
+                            "prompt": args.prompt
+                        })),
+                    ))
+                }
+            }
+            Err(e) => {
+                // Handle command execution failure (e.g., command not found)
+                let _error_msg = if e.kind() == std::io::ErrorKind::NotFound {
+                    format!(
+                        "Gemini CLI command '{}' not found. Please ensure it's installed and accessible.",
+                        self.gemini_cli_command
+                    )
+                } else {
+                    format!("Failed to execute Gemini CLI: {}", e)
+                };
+
+                Err(McpError::internal_error(
+                    "gemini_cli_command_failed",
+                    Some(serde_json::json!({
+                        "command": self.gemini_cli_command,
+                        "error": e.to_string(),
+                        "prompt": args.prompt
+                    })),
+                ))
+            }
+        }
+    }
 }
 
 #[tool_handler]
@@ -204,14 +283,14 @@ impl ServerHandler for FileSystem {
     fn get_info(&self) -> ServerInfo {
         ServerInfo {
             protocol_version: ProtocolVersion::V_2024_11_05,
-            capabilities: ServerCapabilities::builder()
-                .enable_tools()
-                .build(),
+            capabilities: ServerCapabilities::builder().enable_tools().build(),
             server_info: Implementation::from_build_env(),
             instructions: Some(
-                "This server provides filesystem tools for basic file and directory operations. \
+                "This server provides filesystem tools and Gemini CLI integration. \
                 Tools: list_files (list directory contents), read_file (read file contents), \
-                write_file (write to file), get_file_info (get file metadata).".to_string()
+                write_file (write to file), get_file_info (get file metadata), \
+                prompt_gemini (send prompts to Gemini CLI)."
+                    .to_string(),
             ),
         }
     }
@@ -224,3 +303,44 @@ impl ServerHandler for FileSystem {
         Ok(self.get_info())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rmcp::handler::server::wrapper::Parameters;
+
+    #[tokio::test]
+    async fn test_prompt_gemini_command_not_found() {
+        let fs = FileSystem::new("nonexistent_command_12345".to_string());
+        let args = PromptGeminiArgs {
+            prompt: "test prompt".to_string(),
+        };
+
+        let result = fs.prompt_gemini(Parameters(args)).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_prompt_gemini_with_echo() {
+        // Use echo command to simulate successful gemini CLI execution
+        let fs = FileSystem::new("echo".to_string());
+        let args = PromptGeminiArgs {
+            prompt: "test response".to_string(),
+        };
+
+        let result = fs.prompt_gemini(Parameters(args)).await;
+        assert!(result.is_ok());
+
+        if let Ok(call_result) = result {
+            // Echo will return "--prompt test response" since we're passing those as args
+            assert!(!call_result.content.is_empty());
+        }
+    }
+
+    #[tokio::test]
+    async fn test_filesystem_new() {
+        let fs = FileSystem::new("test_command".to_string());
+        assert_eq!(fs.gemini_cli_command, "test_command");
+    }
+}
+
