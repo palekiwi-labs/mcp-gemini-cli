@@ -5,14 +5,20 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 mod tools;
 use tools::GeminiCli;
 
-const BIND_ADDRESS: &str = "127.0.0.1:8000";
-
 #[derive(Parser)]
 #[command(author, version, about)]
 struct Args {
     /// Path or command to gemini-cli executable (supports multi-word commands like "task ai:run")
     #[arg(long, env = "GEMINI_CLI_COMMAND", default_value = "gemini-cli")]
     gemini_cli_command: String,
+
+    /// Hostname to bind the server to
+    #[arg(long, env = "MCP_GEMINI_CLI_HOSTNAME", default_value = "127.0.0.1")]
+    hostname: String,
+
+    /// Port to bind the server to
+    #[arg(long, env = "MCP_GEMINI_CLI_PORT", default_value = "8000")]
+    port: u16,
 }
 
 #[tokio::main]
@@ -28,11 +34,12 @@ async fn main() -> anyhow::Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    tracing::info!("Starting MCP SSE Server on {}", BIND_ADDRESS);
+    let bind_address = format!("{}:{}", args.hostname, args.port);
+    tracing::info!("Starting MCP SSE Server on {}", bind_address);
 
     // Configure SSE server
     let config = SseServerConfig {
-        bind: BIND_ADDRESS.parse()?,
+        bind: bind_address.parse()?,
         sse_path: "/sse".to_string(),
         post_path: "/message".to_string(),
         ct: tokio_util::sync::CancellationToken::new(),
@@ -61,8 +68,8 @@ async fn main() -> anyhow::Result<()> {
     let ct = sse_server.with_service(move || GeminiCli::new(gemini_cli_command.clone()));
 
     tracing::info!("MCP SSE Server running!");
-    tracing::info!("SSE endpoint: http://{}/sse", BIND_ADDRESS);
-    tracing::info!("Message endpoint: http://{}/message", BIND_ADDRESS);
+    tracing::info!("SSE endpoint: http://{}/sse", bind_address);
+    tracing::info!("Message endpoint: http://{}/message", bind_address);
     tracing::info!("Test with MCP Inspector: https://github.com/modelcontextprotocol/inspector");
     tracing::info!("Press Ctrl+C to stop");
 
