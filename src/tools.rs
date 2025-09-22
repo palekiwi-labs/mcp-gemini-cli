@@ -225,11 +225,16 @@ impl FileSystem {
         if parts.len() > 1 {
             cmd.args(&parts[1..]);
         }
-        let output = cmd
-            .arg("--prompt")
-            .arg(&args.prompt)
-            .output()
-            .await;
+
+        // For task runner, use -- separator to pass CLI args
+        if parts[0] == "task" {
+            cmd.arg("--").arg("--prompt").arg(&args.prompt);
+        } else {
+            // For other commands, use --prompt flag directly
+            cmd.arg("--prompt").arg(&args.prompt);
+        }
+        
+        let output = cmd.output().await;
 
         match output {
             Ok(output) => {
