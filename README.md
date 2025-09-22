@@ -1,26 +1,30 @@
-# MCP SSE Server Template
+# MCP Gemini CLI
 
-A [Nix flake](https://nixos.wiki/wiki/Flakes) template for building Model Context Protocol (MCP) servers with Server-Sent Events (SSE) transport in Rust.
+An MCP (Model Context Protocol) server that provides integration with Gemini CLI via Server-Sent Events (SSE) transport in Rust.
 
 ## Features
 
 - **Rust 1.85** with complete toolchain via [fenix](https://github.com/nix-community/fenix)
 - **SSE Transport** for web-compatible real-time communication  
-- **Filesystem Tools** demonstrating practical MCP tool development
+- **Gemini CLI Integration** for sending prompts to Gemini via command line
 - **Complete Dev Environment** with rust-analyzer, cargo-watch, and more
 - **Ready-to-run** minimal but functional server
 
 ## Quick Start
 
 ```bash
-# Create a new project from this template
-nix flake init -t github:your-org/flake-templates#rust-mcp-server
+# Clone the repository
+git clone <repository-url>
+cd mcp-gemini-cli
 
 # Enter the development environment
 nix develop
 
 # Start the MCP SSE server
 cargo run
+
+# Or with custom Gemini CLI command
+cargo run -- --gemini-cli-command "task ai:run"
 ```
 
 The server will start on `http://127.0.0.1:8000` with:
@@ -29,12 +33,9 @@ The server will start on `http://127.0.0.1:8000` with:
 
 ## Available Tools
 
-This template includes filesystem operation tools:
+This server provides Gemini CLI integration:
 
-- **`list_files`** - List files and directories in a path
-- **`read_file`** - Read the contents of a file
-- **`write_file`** - Write content to a file  
-- **`get_file_info`** - Get metadata about a file or directory
+- **`prompt_gemini`** - Send prompts to Gemini CLI and return the response
 
 ## Testing
 
@@ -67,7 +68,7 @@ curl -X POST http://127.0.0.1:8000/message \
 ```
 src/
 ├── main.rs          # SSE server entry point
-└── tools.rs         # Filesystem tools implementation
+└── tools.rs         # Gemini CLI integration implementation
 ```
 
 ### Adding New Tools
