@@ -14,8 +14,6 @@ pub struct PromptGeminiArgs {
     pub prompt: String,
 }
 
-
-
 #[derive(Clone)]
 pub struct GeminiCli {
     tool_router: ToolRouter<GeminiCli>,
@@ -55,12 +53,15 @@ impl GeminiCli {
 
         // For task runner, use -- separator to pass CLI args
         if parts[0] == "task" {
-            cmd.arg("--").arg("--prompt").arg(&args.prompt);
+            cmd.arg("--")
+                .arg("--yolo")
+                .arg("--prompt")
+                .arg(&args.prompt);
         } else {
             // For other commands, use --prompt flag directly
-            cmd.arg("--prompt").arg(&args.prompt);
+            cmd.arg("--yolo").arg("--prompt").arg(&args.prompt);
         }
-        
+
         let output = cmd.output().await;
 
         match output {
@@ -77,7 +78,9 @@ impl GeminiCli {
                     }
 
                     // Return raw response as plain text
-                    Ok(CallToolResult::success(vec![Content::text(raw_response.to_string())]))
+                    Ok(CallToolResult::success(vec![Content::text(
+                        raw_response.to_string(),
+                    )]))
                 } else {
                     // Handle non-zero exit code
                     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -175,7 +178,7 @@ mod tests {
 
         let result = gemini_cli.prompt_gemini(Parameters(args)).await;
         assert!(result.is_ok());
-        
+
         // Should return the echo output as plain text
         if let Ok(call_result) = result {
             assert!(!call_result.content.is_empty());
@@ -196,10 +199,10 @@ mod tests {
         let args = PromptGeminiArgs {
             prompt: "world".to_string(),
         };
-        
+
         let result = gemini_cli.prompt_gemini(Parameters(args)).await;
         assert!(result.is_ok());
-        
+
         if let Ok(call_result) = result {
             assert!(!call_result.content.is_empty());
         }
@@ -213,12 +216,12 @@ mod tests {
         let args = PromptGeminiArgs {
             prompt: "test prompt".to_string(),
         };
-        
+
         let result = gemini_cli.prompt_gemini(Parameters(args)).await;
-        
+
         // Since 'true' returns empty output, it should result in empty response content
         assert!(result.is_ok());
-        
+
         if let Ok(call_result) = result {
             assert!(!call_result.content.is_empty());
             // Should contain empty response message
@@ -235,10 +238,10 @@ mod tests {
         let args = PromptGeminiArgs {
             prompt: "test prompt".to_string(),
         };
-        
+
         let result = gemini_cli.prompt_gemini(Parameters(args)).await;
         assert!(result.is_ok());
-        
+
         if let Ok(call_result) = result {
             assert!(!call_result.content.is_empty());
             // Should contain the echoed text
