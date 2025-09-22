@@ -14,6 +14,20 @@ pub struct PromptGeminiArgs {
     pub prompt: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct GeminiErrorResponse {
+    #[serde(rename = "type")]
+    pub error_type: String,
+    pub message: String,
+    pub code: Option<i32>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct GeminiJsonResponse {
+    pub response: Option<String>,
+    pub error: Option<GeminiErrorResponse>,
+}
+
 #[derive(Clone)]
 pub struct GeminiCli {
     tool_router: ToolRouter<GeminiCli>,
@@ -53,10 +67,10 @@ impl GeminiCli {
 
         // For task runner, use -- separator to pass CLI args
         if parts[0] == "task" {
-            cmd.arg("--").arg("--prompt").arg(&args.prompt);
+            cmd.arg("--").arg("--prompt").arg(&args.prompt).arg("--output-format").arg("json");
         } else {
             // For other commands, use --prompt flag directly
-            cmd.arg("--prompt").arg(&args.prompt);
+            cmd.arg("--prompt").arg(&args.prompt).arg("--output-format").arg("json");
         }
         
         let output = cmd.output().await;
@@ -65,17 +79,51 @@ impl GeminiCli {
             Ok(output) => {
                 if output.status.success() {
                     // Convert output to string, handling potential UTF-8 issues
-                    let response = String::from_utf8_lossy(&output.stdout);
-                    let response = response.trim();
+                    let raw_response = String::from_utf8_lossy(&output.stdout);
+                    let raw_response = raw_response.trim();
 
-                    if response.is_empty() {
-                        Ok(CallToolResult::success(vec![Content::text(
+                    if raw_response.is_empty() {
+                        return Ok(CallToolResult::success(vec![Content::text(
                             "Gemini CLI returned empty response".to_string(),
-                        )]))
-                    } else {
-                        Ok(CallToolResult::success(vec![Content::text(
-                            response.to_string(),
-                        )]))
+                        )]));
+                    }
+
+                    // Parse JSON response
+                    match serde_json::from_str::<GeminiJsonResponse>(raw_response) {
+                        Ok(json_response) => {
+                            // Check if there's an error in the JSON response
+                            if let Some(error) = json_response.error {
+                                return Err(McpError::internal_error(
+                                    "gemini_api_error",
+                                    Some(serde_json::json!({
+                                        "error_type": error.error_type,
+                                        "message": error.message,
+                                        "code": error.code,
+                                        "prompt": args.prompt
+                                    })),
+                                ));
+                            }
+
+                            // Extract the response field
+                            if let Some(response) = json_response.response {
+                                Ok(CallToolResult::success(vec![Content::text(response)]))
+                            } else {
+                                Ok(CallToolResult::success(vec![Content::text(
+                                    "Gemini CLI returned successful JSON but no response content".to_string(),
+                                )]))
+                            }
+                        }
+                        Err(json_err) => {
+                            // JSON parsing failed, return the raw response with error info
+                            Err(McpError::internal_error(
+                                "gemini_json_parse_error",
+                                Some(serde_json::json!({
+                                    "json_error": json_err.to_string(),
+                                    "raw_response": raw_response,
+                                    "prompt": args.prompt
+                                })),
+                            ))
+                        }
                     }
                 } else {
                     // Handle non-zero exit code
@@ -166,17 +214,18 @@ mod tests {
     #[tokio::test]
     async fn test_prompt_gemini_with_echo() {
         // Use echo command to simulate successful gemini CLI execution
+        // Echo will output invalid JSON, so this should fail with JSON parse error
         let gemini_cli = GeminiCli::new("echo".to_string());
         let args = PromptGeminiArgs {
             prompt: "test response".to_string(),
         };
 
         let result = gemini_cli.prompt_gemini(Parameters(args)).await;
-        assert!(result.is_ok());
-
-        if let Ok(call_result) = result {
-            // Echo will return "--prompt test response" since we're passing those as args
-            assert!(!call_result.content.is_empty());
+        assert!(result.is_err());
+        
+        // Should be a JSON parse error since echo doesn't return valid JSON
+        if let Err(error) = result {
+            assert_eq!(error.code, "gemini_json_parse_error");
         }
     }
 
@@ -189,17 +238,55 @@ mod tests {
     #[tokio::test]
     async fn test_prompt_gemini_with_multiword_command() {
         // Test with a multi-word command like "echo hello"
+        // This will also fail with JSON parse error since echo doesn't return valid JSON
         let gemini_cli = GeminiCli::new("echo hello".to_string());
         let args = PromptGeminiArgs {
             prompt: "world".to_string(),
         };
         
         let result = gemini_cli.prompt_gemini(Parameters(args)).await;
+        assert!(result.is_err());
+        
+        if let Err(error) = result {
+            assert_eq!(error.code, "gemini_json_parse_error");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_prompt_gemini_with_valid_json() {
+        // Test with a command that returns valid JSON
+        let valid_json = r#"{"response": "This is a test response"}"#;
+        let gemini_cli = GeminiCli::new(format!("echo '{}'", valid_json));
+        let args = PromptGeminiArgs {
+            prompt: "test prompt".to_string(),
+        };
+        
+        let result = gemini_cli.prompt_gemini(Parameters(args)).await;
         assert!(result.is_ok());
         
         if let Ok(call_result) = result {
-            // Should contain "hello --prompt world"
             assert!(!call_result.content.is_empty());
+            // Should contain just the response content
+            if let Content::Text { text } = &call_result.content[0] {
+                assert_eq!(text, "This is a test response");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_prompt_gemini_with_error_json() {
+        // Test with JSON that contains an error
+        let error_json = r#"{"error": {"type": "ApiError", "message": "Test error message", "code": 400}}"#;
+        let gemini_cli = GeminiCli::new(format!("echo '{}'", error_json));
+        let args = PromptGeminiArgs {
+            prompt: "test prompt".to_string(),
+        };
+        
+        let result = gemini_cli.prompt_gemini(Parameters(args)).await;
+        assert!(result.is_err());
+        
+        if let Err(error) = result {
+            assert_eq!(error.code, "gemini_api_error");
         }
     }
 }
