@@ -62,6 +62,11 @@ impl GeminiCli {
             cmd.arg("--yolo").arg("--prompt").arg(&args.prompt);
         }
 
+        // Inherit GEMINI_WORKSPACE environment variable if present
+        if let Ok(workspace) = std::env::var("GEMINI_WORKSPACE") {
+            cmd.env("GEMINI_WORKSPACE", workspace);
+        }
+
         let output = cmd.output().await;
 
         match output {
