@@ -29,7 +29,7 @@ impl GeminiCli {
         }
     }
 
-    #[tool(description = "Send a prompt to Gemini CLI and return the response")]
+    #[tool(name = "prompt-gemini", description = "Send a prompt to Gemini CLI and return the response")]
     async fn prompt_gemini(
         &self,
         Parameters(args): Parameters<PromptGeminiArgs>,
