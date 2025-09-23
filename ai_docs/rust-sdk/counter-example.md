@@ -1,19 +1,14 @@
 # Counter Example - MCP Rust SDK
 
-This is an example MCP server implementation in Rust that demonstrates tools and prompts functionality using a simple counter.
+Source: [counter.rs](https://github.com/modelcontextprotocol/rust-sdk/blob/main/examples/servers/src/common/counter.rs)
 
-## Source
+This is a comprehensive example of implementing a Model Context Protocol (MCP) server in Rust using the official Rust SDK. The counter example demonstrates tools, prompts, and resources functionality.
 
-File: `examples/servers/src/common/counter.rs`  
-Repository: [modelcontextprotocol/rust-sdk](https://github.com/modelcontextprotocol/rust-sdk)
-
-## Code
+## Complete Source Code
 
 ```rust
 #![allow(dead_code)]
-
 use std::sync::Arc;
-
 use rmcp::{
     ErrorData as McpError, RoleServer, ServerHandler,
     handler::server::{
@@ -21,8 +16,7 @@ use rmcp::{
         wrapper::Parameters,
     },
     model::*,
-    prompt, prompt_handler, prompt_router, schemars,
-    service::RequestContext,
+    prompt, prompt_handler, prompt_router, schemars, service::RequestContext,
     tool, tool_handler, tool_router,
 };
 use serde_json::json;
@@ -158,7 +152,7 @@ impl Counter {
             PromptMessage::new_text(
                 PromptMessageRole::User,
                 format!(
-                    "Current counter value: {}\nGoal value: {}\nDifference: {}\nStrategy preference: {}\n\nPlease analyze the situation and suggest the best approach to reach the goal.",
+                    "Current counter value: {}\\nGoal value: {}\\nDifference: {}\\nStrategy preference: {}\\n\\nPlease analyze the situation and suggest the best approach to reach the goal.",
                     current_value, args.goal, difference, strategy
                 ),
             ),
@@ -217,7 +211,7 @@ impl ServerHandler for Counter {
                 })
             }
             "memo://insights" => {
-                let memo = "Business Intelligence Memo\n\nAnalysis has revealed 5 key insights ...";
+                let memo = "Business Intelligence Memo\\n\\nAnalysis has revealed 5 key insights ...";
                 Ok(ReadResourceResult {
                     contents: vec![ResourceContents::text(memo, uri)],
                 })
@@ -328,36 +322,42 @@ mod tests {
 }
 ```
 
-## Key Features
+## Key Features Demonstrated
 
-### Tools Provided
+### Tools
+The example implements several MCP tools using the `#[tool]` attribute macro:
 
-1. **increment** - Increment the counter by 1
-2. **decrement** - Decrement the counter by 1  
-3. **get_value** - Get the current counter value
-4. **say_hello** - Say hello to the client
-5. **echo** - Repeat what you say
-6. **sum** - Calculate the sum of two numbers
+1. **increment** - Increments the counter by 1
+2. **decrement** - Decrements the counter by 1  
+3. **get_value** - Returns the current counter value
+4. **say_hello** - Simple hello response
+5. **echo** - Echoes back JSON input
+6. **sum** - Calculates sum of two numbers using structured parameters
 
-### Prompts Provided
+### Prompts
+Two example prompts are implemented using the `#[prompt]` attribute macro:
 
-1. **example_prompt** - Takes a message and formats it into a prompt
-2. **counter_analysis** - Analyzes the current counter state against a goal and suggests strategies
+1. **example_prompt** - Takes a message parameter and formats it into a prompt
+2. **counter_analysis** - Analyzes current counter state against a goal with strategy options
 
-### Resources Provided
+### Resources
+The server provides example resources:
+- A file path resource (`str:////Users/to/some/path/`)
+- A memo resource (`memo://insights`)
 
-- **cwd** - Current working directory path
-- **memo-name** - Business intelligence memo with insights
+### Architecture Patterns
 
-## Architecture
+- **Async/Await**: Uses tokio for async operations
+- **Arc<Mutex<T>>**: Thread-safe shared state management
+- **Router Pattern**: Separate tool and prompt routers
+- **Attribute Macros**: Declarative tool and prompt definitions
+- **Type Safety**: Strong typing with serde and JSON schema validation
+- **Error Handling**: Proper MCP error handling and propagation
 
-The example demonstrates:
+### Testing
+Comprehensive test suite covering:
+- Prompt attribute generation
+- Router functionality  
+- Prompt execution flow
 
-- **Tool Router**: Uses `#[tool_router]` and `#[tool]` attributes to define tools
-- **Prompt Router**: Uses `#[prompt_router]` and `#[prompt]` attributes to define prompts  
-- **Server Handler**: Implements the full MCP server interface
-- **Thread Safety**: Uses `Arc<Mutex<i32>>` for safe concurrent access to the counter
-- **JSON Schema**: Uses schemars for automatic schema generation
-- **Testing**: Comprehensive tests for prompt attributes, routing, and execution
-
-This example serves as a comprehensive reference for building MCP servers in Rust with tools, prompts, and resources.
+This example serves as a complete reference implementation for building MCP servers in Rust.

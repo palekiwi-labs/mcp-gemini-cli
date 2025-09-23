@@ -1,6 +1,6 @@
 # Counter SSE Server Example
 
-This is an example of a Counter server using Server-Sent Events (SSE) transport from the MCP Rust SDK.
+This is a Rust example demonstrating how to create an MCP (Model Context Protocol) server using Server-Sent Events (SSE) transport.
 
 ## Source Code
 
@@ -65,23 +65,22 @@ async fn main() -> anyhow::Result<()> {
 
 This example demonstrates:
 
-1. **SSE Server Setup**: Creates an SSE server with configuration for bind address, SSE endpoint path, and message endpoint path
-2. **Tracing**: Sets up structured logging with tracing subscriber
-3. **Graceful Shutdown**: Implements graceful shutdown handling with cancellation tokens
-4. **Counter Service**: Integrates with a Counter MCP service
-5. **Axum Integration**: Uses Axum web framework for the HTTP server
+1. **SSE Server Setup**: Creates an SSE server configuration with specific bind address and paths
+2. **Tracing Integration**: Sets up structured logging with the `tracing` crate
+3. **Graceful Shutdown**: Implements proper cancellation token handling for clean shutdown
+4. **Axum Integration**: Uses the Axum web framework to serve the SSE endpoint
+5. **Counter Service**: Integrates a counter service that implements MCP functionality
 
 ## Key Components
 
-- **SseServer**: The main SSE server implementation
-- **SseServerConfig**: Configuration for the SSE server including bind address and paths
-- **Counter**: The MCP service being exposed via SSE transport
-- **Graceful Shutdown**: Proper cleanup when the server is terminated
+- **SseServerConfig**: Configuration for the SSE server including bind address, SSE path (`/sse`), and POST path (`/message`)
+- **Cancellation Tokens**: Used for coordinating graceful shutdown across async tasks
+- **Counter Service**: A service that provides MCP functionality over the SSE transport
 
 ## Usage
 
-This server binds to `127.0.0.1:8000` and provides:
-- SSE endpoint at `/sse` for real-time communication
-- Message endpoint at `/message` for sending messages to the server
+The server binds to `127.0.0.1:8000` and provides:
+- SSE endpoint at `/sse` for receiving server-sent events
+- POST endpoint at `/message` for sending messages to the server
 
-The server runs until Ctrl+C is pressed, at which point it gracefully shuts down.
+The server runs until receiving a Ctrl+C signal, at which point it gracefully shuts down.

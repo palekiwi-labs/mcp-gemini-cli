@@ -2,30 +2,6 @@
 
 Headless mode allows you to run Gemini CLI programmatically from command line scripts and automation tools without any interactive UI. This is ideal for scripting, automation, CI/CD pipelines, and building AI-powered tools.
 
-## Table of Contents
-
-- [Overview](#overview)
-- [Basic Usage](#basic-usage)
-  - [Direct Prompts](#direct-prompts)
-  - [Stdin Input](#stdin-input)
-  - [Combining with File Input](#combining-with-file-input)
-- [Output Formats](#output-formats)
-  - [Text Output (Default)](#text-output-default)
-  - [JSON Output](#json-output)
-    - [Response Schema](#response-schema)
-    - [Example Usage](#example-usage)
-  - [File Redirection](#file-redirection)
-- [Configuration Options](#configuration-options)
-- [Examples](#examples)
-  - [Code review](#code-review)
-  - [Generate commit messages](#generate-commit-messages)
-  - [API documentation](#api-documentation)
-  - [Batch code analysis](#batch-code-analysis)
-  - [Log analysis](#log-analysis)
-  - [Release notes generation](#release-notes-generation)
-  - [Model and tool usage tracking](#model-and-tool-usage-tracking)
-- [Resources](#resources)
-
 ## Overview
 
 The headless mode provides a headless interface to Gemini CLI that:
@@ -231,7 +207,7 @@ gemini -p "List programming languages" | grep -i "python"
 Key command-line options for headless usage:
 
 | Option | Description | Example |
-|--------|-------------|---------|
+| --- | --- | --- |
 | `--prompt`, `-p` | Run in headless mode | `gemini -p "query"` |
 | `--output-format` | Specify output format (text, json) | `gemini -p "query" --output-format json` |
 | `--model`, `-m` | Specify the Gemini model | `gemini -p "query" -m gemini-2.5-flash` |
@@ -274,6 +250,13 @@ for file in src/*.py; do
     echo "$result" | jq -r '.response' > "reports/$(basename "$file").analysis"
     echo "Completed analysis for $(basename "$file")" >> reports/progress.log
 done
+```
+
+### Code review
+
+```shell
+result=$(git diff origin/main...HEAD | gemini -p "Review these changes for bugs, security issues, and code quality" --output-format json)
+echo "$result" | jq -r '.response' > pr-review.json
 ```
 
 ### Log analysis
