@@ -1,0 +1,11 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "mcp-gemini-cli": {
+      "type": "remote",
+      "url": "http://172.17.0.1:30308/sse",
+      "enabled": true
+    },
+  }
+}
+
