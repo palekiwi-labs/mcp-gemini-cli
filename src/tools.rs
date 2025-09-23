@@ -18,14 +18,16 @@ pub struct PromptGeminiArgs {
 pub struct GeminiCli {
     tool_router: ToolRouter<GeminiCli>,
     gemini_cli_command: String,
+    workspace: Option<String>,
 }
 
 #[tool_router]
 impl GeminiCli {
-    pub fn new(gemini_cli_command: String) -> Self {
+    pub fn new(gemini_cli_command: String, workspace: Option<String>) -> Self {
         Self {
             tool_router: Self::tool_router(),
             gemini_cli_command,
+            workspace,
         }
     }
 
@@ -62,9 +64,14 @@ impl GeminiCli {
             cmd.arg("--yolo").arg("--prompt").arg(&args.prompt);
         }
 
-        // Inherit GEMINI_WORKSPACE environment variable if present
-        if let Ok(workspace) = std::env::var("GEMINI_WORKSPACE") {
-            cmd.env("GEMINI_WORKSPACE", workspace);
+        // Use workspace from struct, falling back to environment variable
+        let workspace = self.workspace
+            .as_ref()
+            .cloned()
+            .or_else(|| std::env::var("GEMINI_WORKSPACE").ok());
+        
+        if let Some(ws) = workspace {
+            cmd.env("GEMINI_WORKSPACE", ws);
         }
 
         let output = cmd.output().await;
@@ -163,7 +170,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_prompt_gemini_command_not_found() {
-        let gemini_cli = GeminiCli::new("nonexistent_command_12345".to_string());
+        let gemini_cli = GeminiCli::new("nonexistent_command_12345".to_string(), None);
         let args = PromptGeminiArgs {
             prompt: "test prompt".to_string(),
         };
@@ -176,7 +183,7 @@ mod tests {
     async fn test_prompt_gemini_with_echo() {
         // Use echo command to simulate successful gemini CLI execution
         // Echo will output plain text, which should be returned successfully
-        let gemini_cli = GeminiCli::new("echo".to_string());
+        let gemini_cli = GeminiCli::new("echo".to_string(), None);
         let args = PromptGeminiArgs {
             prompt: "test response".to_string(),
         };
@@ -192,7 +199,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_gemini_cli_new() {
-        let gemini_cli = GeminiCli::new("test_command".to_string());
+        let gemini_cli = GeminiCli::new("test_command".to_string(), None);
         assert_eq!(gemini_cli.gemini_cli_command, "test_command");
     }
 
@@ -200,7 +207,7 @@ mod tests {
     async fn test_prompt_gemini_with_multiword_command() {
         // Test with a multi-word command like "echo hello"
         // This should successfully return the plain text output
-        let gemini_cli = GeminiCli::new("echo hello".to_string());
+        let gemini_cli = GeminiCli::new("echo hello".to_string(), None);
         let args = PromptGeminiArgs {
             prompt: "world".to_string(),
         };
@@ -217,7 +224,7 @@ mod tests {
     async fn test_prompt_gemini_with_empty_output() {
         // Test with a simple command that we know will work (true does nothing but exit successfully)
         // This test verifies the plain text response handling
-        let gemini_cli = GeminiCli::new("true".to_string());
+        let gemini_cli = GeminiCli::new("true".to_string(), None);
         let args = PromptGeminiArgs {
             prompt: "test prompt".to_string(),
         };
@@ -239,7 +246,7 @@ mod tests {
     #[tokio::test]
     async fn test_prompt_gemini_with_text_output() {
         // Test with a command that returns plain text
-        let gemini_cli = GeminiCli::new("echo 'Hello from Gemini'".to_string());
+        let gemini_cli = GeminiCli::new("echo 'Hello from Gemini'".to_string(), None);
         let args = PromptGeminiArgs {
             prompt: "test prompt".to_string(),
         };

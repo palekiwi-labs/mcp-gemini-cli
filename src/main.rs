@@ -12,6 +12,10 @@ struct Args {
     #[arg(long, env = "GEMINI_CLI_COMMAND", default_value = "gemini-cli")]
     gemini_cli_command: String,
 
+    /// Workspace path for Gemini CLI (overrides GEMINI_WORKSPACE env var)
+    #[arg(long, env = "GEMINI_WORKSPACE")]
+    workspace: Option<String>,
+
     /// Hostname to bind the server to
     #[arg(long, env = "MCP_GEMINI_CLI_HOSTNAME", default_value = "127.0.0.1")]
     hostname: String,
@@ -65,7 +69,8 @@ async fn main() -> anyhow::Result<()> {
 
     // Start the MCP service with GeminiCli tools
     let gemini_cli_command = args.gemini_cli_command.clone();
-    let ct = sse_server.with_service(move || GeminiCli::new(gemini_cli_command.clone()));
+    let workspace = args.workspace.clone();
+    let ct = sse_server.with_service(move || GeminiCli::new(gemini_cli_command.clone(), workspace.clone()));
 
     tracing::info!("MCP SSE Server running!");
     tracing::info!("SSE endpoint: http://{}/sse", bind_address);
