@@ -15,9 +15,6 @@ use tokio::process::Command;
 pub struct PromptGeminiArgs {
     /// The prompt to send to Gemini CLI
     pub prompt: String,
-    /// Output format: "json" or "text" (default)
-    #[serde(default)]
-    pub output_format: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -122,40 +119,34 @@ pub struct FileStats {
 #[derive(Debug)]
 enum ParseResult {
     JsonSuccess(Box<GeminiJsonResponse>),
-    TextFallback(String),
     ParseError { raw_output: String, error: String },
 }
 
-fn parse_gemini_output(raw_output: &str, expect_json: bool) -> ParseResult {
-    if expect_json {
-        // Try multiple JSON parsing strategies
-        if let Ok(json_response) = serde_json::from_str::<GeminiJsonResponse>(raw_output.trim()) {
+fn parse_gemini_output(raw_output: &str) -> ParseResult {
+    // Try multiple JSON parsing strategies
+    if let Ok(json_response) = serde_json::from_str::<GeminiJsonResponse>(raw_output.trim()) {
+        return ParseResult::JsonSuccess(Box::new(json_response));
+    }
+
+    // Try extracting JSON objects from mixed content
+    if let Some(json_str) = extract_json_from_mixed_content(raw_output) 
+        && let Ok(json_response) = serde_json::from_str::<GeminiJsonResponse>(&json_str) {
+        return ParseResult::JsonSuccess(Box::new(json_response));
+    }
+
+    // Try line-by-line parsing
+    for line in raw_output.lines() {
+        let line = line.trim();
+        if line.starts_with('{') 
+            && let Ok(json_response) = serde_json::from_str::<GeminiJsonResponse>(line) {
             return ParseResult::JsonSuccess(Box::new(json_response));
         }
+    }
 
-        // Try extracting JSON objects from mixed content
-        if let Some(json_str) = extract_json_from_mixed_content(raw_output) 
-            && let Ok(json_response) = serde_json::from_str::<GeminiJsonResponse>(&json_str) {
-            return ParseResult::JsonSuccess(Box::new(json_response));
-        }
-
-        // Try line-by-line parsing
-        for line in raw_output.lines() {
-            let line = line.trim();
-            if line.starts_with('{') 
-                && let Ok(json_response) = serde_json::from_str::<GeminiJsonResponse>(line) {
-                return ParseResult::JsonSuccess(Box::new(json_response));
-            }
-        }
-
-        // JSON was expected but parsing failed
-        ParseResult::ParseError {
-            raw_output: raw_output.to_string(),
-            error: "Failed to parse JSON from gemini CLI output".to_string(),
-        }
-    } else {
-        // Plain text mode
-        ParseResult::TextFallback(raw_output.to_string())
+    // JSON parsing failed
+    ParseResult::ParseError {
+        raw_output: raw_output.to_string(),
+        error: "Failed to parse JSON from gemini CLI output".to_string(),
     }
 }
 
@@ -174,13 +165,11 @@ fn extract_json_from_mixed_content(content: &str) -> Option<String> {
             }
             '}' => {
                 brace_count -= 1;
-                if brace_count == 0 {
-                    if let Some(start) = start_pos {
-                        let json_str = &content[start..=i];
-                        // Validate it's actually JSON
-                        if serde_json::from_str::<serde_json::Value>(json_str).is_ok() {
-                            return Some(json_str.to_string());
-                        }
+                if brace_count == 0 && let Some(start) = start_pos {
+                    let json_str = &content[start..=i];
+                    // Validate it's actually JSON
+                    if serde_json::from_str::<serde_json::Value>(json_str).is_ok() {
+                        return Some(json_str.to_string());
                     }
                 }
             }
@@ -209,7 +198,7 @@ impl GeminiCli {
 
     #[tool(
         name = "prompt-gemini",
-        description = "Send a prompt to Gemini CLI and return the response"
+        description = "Send a prompt to Gemini CLI and return the JSON response"
     )]
     async fn prompt_gemini(
         &self,
@@ -237,17 +226,16 @@ impl GeminiCli {
             cmd.arg("--")
                 .arg("--yolo")
                 .arg("--prompt")
-                .arg(&args.prompt);
+                .arg(&args.prompt)
+                .arg("--output-format")
+                .arg("json");
         } else {
             // For other commands, use --prompt flag directly
-            cmd.arg("--yolo").arg("--prompt").arg(&args.prompt);
-        }
-
-        // Add output format flag if JSON is requested
-        if let Some(ref format) = args.output_format {
-            if format == "json" {
-                cmd.arg("--output-format").arg("json");
-            }
+            cmd.arg("--yolo")
+                .arg("--prompt")
+                .arg(&args.prompt)
+                .arg("--output-format")
+                .arg("json");
         }
 
         // Use workspace from struct, falling back to environment variable
@@ -276,15 +264,8 @@ impl GeminiCli {
                         )]));
                     }
 
-                    // Determine if JSON output was requested
-                    let expect_json = args
-                        .output_format
-                        .as_ref()
-                        .map(|f| f == "json")
-                        .unwrap_or(false);
-
-                    // Parse response using appropriate strategy
-                    match parse_gemini_output(raw_response, expect_json) {
+                    // Parse response as JSON
+                    match parse_gemini_output(raw_response) {
                         ParseResult::JsonSuccess(json_response) => {
                             // Check if there's an error in the JSON response
                             if let Some(error) = json_response.error {
@@ -304,12 +285,8 @@ impl GeminiCli {
                                 json_response.response,
                             )]))
                         }
-                        ParseResult::TextFallback(text) => {
-                            // Return raw response as plain text
-                            Ok(CallToolResult::success(vec![Content::text(text)]))
-                        }
                         ParseResult::ParseError { raw_output, error } => {
-                            // JSON was expected but parsing failed, return error with raw output for debugging
+                            // JSON parsing failed, return error with raw output for debugging
                             Err(McpError::internal_error(
                                 "gemini_json_parse_error",
                                 Some(serde_json::json!({
@@ -374,8 +351,8 @@ impl ServerHandler for GeminiCli {
             capabilities: ServerCapabilities::builder().enable_tools().build(),
             server_info: Implementation::from_build_env(),
             instructions: Some(
-                "This server provides Gemini CLI integration with JSON output support. \
-                Tools: prompt_gemini (send prompts to Gemini CLI with optional JSON format)."
+                "This server provides Gemini CLI integration with structured JSON output. \
+                Tools: prompt_gemini (send prompts to Gemini CLI and receive JSON responses)."
                     .to_string(),
             ),
         }
@@ -400,7 +377,6 @@ mod tests {
         let gemini_cli = GeminiCli::new("nonexistent_command_12345".to_string(), None);
         let args = PromptGeminiArgs {
             prompt: "test prompt".to_string(),
-            output_format: None,
         };
 
         let result = gemini_cli.prompt_gemini(Parameters(args)).await;
@@ -409,20 +385,18 @@ mod tests {
 
     #[tokio::test]
     async fn test_prompt_gemini_with_echo() {
-        // Use echo command to simulate successful gemini CLI execution
-        // Echo will output plain text, which should be returned successfully
+        // Use echo command which outputs plain text - should result in JSON parse error
         let gemini_cli = GeminiCli::new("echo".to_string(), None);
         let args = PromptGeminiArgs {
             prompt: "test response".to_string(),
-            output_format: None,
         };
 
         let result = gemini_cli.prompt_gemini(Parameters(args)).await;
-        assert!(result.is_ok());
+        assert!(result.is_err());
 
-        // Should return the echo output as plain text
-        if let Ok(call_result) = result {
-            assert!(!call_result.content.is_empty());
+        // Should be a JSON parse error since echo doesn't output valid JSON
+        if let Err(error) = result {
+            assert!(error.message.contains("gemini_json_parse_error"));
         }
     }
 
@@ -435,18 +409,17 @@ mod tests {
     #[tokio::test]
     async fn test_prompt_gemini_with_multiword_command() {
         // Test with a multi-word command like "echo hello"
-        // This should successfully return the plain text output
+        // This should fail with JSON parse error since echo outputs plain text
         let gemini_cli = GeminiCli::new("echo hello".to_string(), None);
         let args = PromptGeminiArgs {
             prompt: "world".to_string(),
-            output_format: None,
         };
 
         let result = gemini_cli.prompt_gemini(Parameters(args)).await;
-        assert!(result.is_ok());
+        assert!(result.is_err());
 
-        if let Ok(call_result) = result {
-            assert!(!call_result.content.is_empty());
+        if let Err(error) = result {
+            assert!(error.message.contains("gemini_json_parse_error"));
         }
     }
 
@@ -457,7 +430,6 @@ mod tests {
         let gemini_cli = GeminiCli::new("true".to_string(), None);
         let args = PromptGeminiArgs {
             prompt: "test prompt".to_string(),
-            output_format: None,
         };
 
         let result = gemini_cli.prompt_gemini(Parameters(args)).await;
@@ -476,22 +448,17 @@ mod tests {
 
     #[tokio::test]
     async fn test_prompt_gemini_with_text_output() {
-        // Test with a command that returns plain text
+        // Test with a command that returns plain text - should result in JSON parse error
         let gemini_cli = GeminiCli::new("echo 'Hello from Gemini'".to_string(), None);
         let args = PromptGeminiArgs {
             prompt: "test prompt".to_string(),
-            output_format: None,
         };
 
         let result = gemini_cli.prompt_gemini(Parameters(args)).await;
-        assert!(result.is_ok());
+        assert!(result.is_err());
 
-        if let Ok(call_result) = result {
-            assert!(!call_result.content.is_empty());
-            // Should contain the echoed text
-            if let RawContent::Text(text_content) = &call_result.content[0].raw {
-                assert!(text_content.text.contains("Hello from Gemini"));
-            }
+        if let Err(error) = result {
+            assert!(error.message.contains("gemini_json_parse_error"));
         }
     }
 
@@ -499,7 +466,7 @@ mod tests {
     #[test]
     fn test_parse_clean_json() {
         let json_output = r#"{"response": "Hello world", "stats": null, "error": null}"#;
-        let result = parse_gemini_output(json_output, true);
+        let result = parse_gemini_output(json_output);
         match result {
             ParseResult::JsonSuccess(response) => {
                 assert_eq!(response.response, "Hello world");
@@ -516,7 +483,7 @@ mod tests {
 Generating response...
 {"response": "Hello world", "stats": null, "error": null}
 Done."#;
-        let result = parse_gemini_output(mixed_output, true);
+        let result = parse_gemini_output(mixed_output);
         match result {
             ParseResult::JsonSuccess(response) => {
                 assert_eq!(response.response, "Hello world");
@@ -528,7 +495,7 @@ Done."#;
     #[test]
     fn test_parse_error_response() {
         let error_json = r#"{"response": "", "error": {"type": "ApiError", "message": "Test error", "code": 400}, "stats": null}"#;
-        let result = parse_gemini_output(error_json, true);
+        let result = parse_gemini_output(error_json);
         match result {
             ParseResult::JsonSuccess(response) => {
                 assert!(response.error.is_some());
@@ -544,7 +511,7 @@ Done."#;
     #[test]
     fn test_parse_fallback_to_error() {
         let invalid_json = "This is not JSON at all";
-        let result = parse_gemini_output(invalid_json, true);
+        let result = parse_gemini_output(invalid_json);
         match result {
             ParseResult::ParseError { raw_output, error } => {
                 assert_eq!(raw_output, invalid_json);
@@ -555,14 +522,15 @@ Done."#;
     }
 
     #[test]
-    fn test_text_mode() {
+    fn test_non_json_input_returns_error() {
         let text_output = "Hello world";
-        let result = parse_gemini_output(text_output, false);
+        let result = parse_gemini_output(text_output);
         match result {
-            ParseResult::TextFallback(text) => {
-                assert_eq!(text, "Hello world");
+            ParseResult::ParseError { raw_output, error } => {
+                assert_eq!(raw_output, text_output);
+                assert!(error.contains("Failed to parse JSON"));
             }
-            _ => panic!("Expected TextFallback"),
+            _ => panic!("Expected ParseError for non-JSON input"),
         }
     }
 
@@ -587,7 +555,6 @@ Done."#;
         let gemini_cli = GeminiCli::new(format!("echo '{}'", valid_json), None);
         let args = PromptGeminiArgs {
             prompt: "What is the capital of France?".to_string(),
-            output_format: Some("json".to_string()),
         };
 
         let result = gemini_cli.prompt_gemini(Parameters(args)).await;
@@ -608,7 +575,6 @@ Done."#;
         let gemini_cli = GeminiCli::new(format!("echo '{}'", error_json), None);
         let args = PromptGeminiArgs {
             prompt: "test".to_string(),
-            output_format: Some("json".to_string()),
         };
 
         let result = gemini_cli.prompt_gemini(Parameters(args)).await;
@@ -629,7 +595,6 @@ Done."#;
         let gemini_cli = GeminiCli::new(format!("echo '{}'", invalid_json), None);
         let args = PromptGeminiArgs {
             prompt: "test".to_string(),
-            output_format: Some("json".to_string()),
         };
 
         let result = gemini_cli.prompt_gemini(Parameters(args)).await;
