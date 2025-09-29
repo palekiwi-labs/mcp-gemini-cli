@@ -4,5 +4,6 @@ https://github.com/modelcontextprotocol/rust-sdk/blob/main/examples/servers/READ
 https://raw.githubusercontent.com/modelcontextprotocol/rust-sdk/refs/heads/main/examples/servers/src/counter_sse.rs
 https://github.com/modelcontextprotocol/rust-sdk/blob/main/examples/servers/src/common/counter.rs
 
-## gemini-cli
-https://github.com/google-gemini/gemini-cli/blob/main/docs/headless.md
+## rmcp
+https://docs.rs/rmcp/latest/rmcp/
+https://docs.rs/rmcp/latest/rmcp/enum.RmcpError.html
